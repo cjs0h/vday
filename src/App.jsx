@@ -2,7 +2,6 @@ import gsap from "gsap";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ParticleBurst from "./components/ParticleBurst";
-import ProgressDots from "./components/ProgressDots";
 import Starfield from "./components/Starfield";
 import Vignette from "./components/Vignette";
 import SceneVoid from "./scenes/SceneVoid";
@@ -31,6 +30,19 @@ const scenes = [
   SceneFinale,      // 10: Grand finale
 ];
 
+/* ── unlock date: Feb 14 00:00 Basra time (Asia/Baghdad = UTC+3) ── */
+const UNLOCK_UTC = Date.UTC(2026, 1, 13, 21, 0, 0); // Feb 13 21:00 UTC = Feb 14 00:00 UTC+3
+
+function getTimeLeft() {
+  const diff = UNLOCK_UTC - Date.now();
+  if (diff <= 0) return null;
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return { d, h, m, s, total: diff };
+}
+
 const initialStarState = {
   targetSpeed: 0.25,
   currentSpeed: 0.25,
@@ -47,16 +59,98 @@ const makeObjectsState = () => ({
   bloomIntensity: 0,
 });
 
+/* ── Lock Screen ── */
+function LockScreen({ timeLeft }) {
+  return (
+    <section className="relative z-30 flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
+      <motion.div
+        animate={{ scale: [1, 1.12, 1] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        className="text-[clamp(80px,20vw,140px)] leading-none"
+        style={{ filter: "drop-shadow(0 0 40px rgba(255,107,138,0.5))" }}
+      >
+        {"💝"}
+      </motion.div>
+
+      <motion.h1
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 1, delay: 0.3 }}
+        className="font-handwriting text-[clamp(32px,8vw,72px)] leading-[1.3] text-[#fff8f0]"
+      >
+        Something special is coming...
+      </motion.h1>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.7 }}
+        transition={{ delay: 0.8 }}
+        className="font-display text-[clamp(16px,3.5vw,22px)] text-[#ffb3c6]"
+      >
+        just for you
+      </motion.p>
+
+      {/* countdown */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.2 }}
+        className="mt-4 flex gap-4 sm:gap-6"
+      >
+        {[
+          { val: timeLeft.d, label: "days" },
+          { val: timeLeft.h, label: "hours" },
+          { val: timeLeft.m, label: "min" },
+          { val: timeLeft.s, label: "sec" },
+        ].map(({ val, label }) => (
+          <div key={label} className="flex flex-col items-center gap-1">
+            <span
+              className="font-display text-[clamp(28px,7vw,56px)] tabular-nums text-[#fff8f0]"
+              style={{ filter: "drop-shadow(0 0 12px rgba(255,179,198,0.3))" }}
+            >
+              {String(val).padStart(2, "0")}
+            </span>
+            <span className="text-[clamp(10px,2.5vw,14px)] uppercase tracking-widest text-[#ffb3c6]/60">
+              {label}
+            </span>
+          </div>
+        ))}
+      </motion.div>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0.3, 0.6, 0.3] }}
+        transition={{ delay: 2, duration: 3, repeat: Infinity }}
+        className="mt-6 text-[clamp(13px,3vw,17px)] text-[#fff8f0]/40"
+      >
+        patience, my love...
+      </motion.p>
+    </section>
+  );
+}
+
 export default function App() {
   const [sceneIndex, setSceneIndex] = useState(0);
   const [bursts, setBursts] = useState([]);
   const [toast, setToast] = useState("");
+  const [timeLeft, setTimeLeft] = useState(() => getTimeLeft());
   const starControlRef = useRef({ ...initialStarState });
   const sceneObjectsRef = useRef(makeObjectsState());
   const burstIdRef = useRef(0);
   const firstSceneRef = useRef(true);
   const toastTimerRef = useRef(null);
   const warpTimelineRef = useRef(null);
+
+  /* countdown tick */
+  useEffect(() => {
+    if (!timeLeft) return;
+    const id = setInterval(() => {
+      const tl = getTimeLeft();
+      if (!tl) { setTimeLeft(null); clearInterval(id); return; }
+      setTimeLeft(tl);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [!!timeLeft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setStarPreset = useCallback((preset) => {
     Object.assign(starControlRef.current, {
@@ -118,6 +212,7 @@ export default function App() {
     warpTimelineRef.current?.kill();
   }, []);
 
+  const isLocked = timeLeft !== null;
   const ActiveScene = scenes[sceneIndex];
 
   return (
@@ -126,44 +221,48 @@ export default function App() {
       <ParticleBurst bursts={bursts} onDone={removeBurst} />
       <Vignette />
 
-      <div className="relative z-30 min-h-dvh">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={`scene-${sceneIndex}`}
-            initial={{ opacity: 0, y: 24, scale: 1.02 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="min-h-dvh"
-          >
-            <ActiveScene
-              onNext={goNext}
-              onRestart={restart}
-              setStarPreset={setStarPreset}
-              setSceneObjects={setSceneObjects}
-              sceneObjectsRef={sceneObjectsRef}
-              triggerWarp={triggerWarp}
-              triggerBurst={triggerBurst}
-              onSaveMoment={() => showToast("Take a screenshot and keep it forever \ud83d\udcf8")}
-            />
-          </motion.div>
-        </AnimatePresence>
-      </div>
+      {isLocked ? (
+        <LockScreen timeLeft={timeLeft} />
+      ) : (
+        <>
+          <div className="relative z-30 min-h-dvh">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`scene-${sceneIndex}`}
+                initial={{ opacity: 0, y: 24, scale: 1.02 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className="min-h-dvh"
+              >
+                <ActiveScene
+                  onNext={goNext}
+                  onRestart={restart}
+                  setStarPreset={setStarPreset}
+                  setSceneObjects={setSceneObjects}
+                  sceneObjectsRef={sceneObjectsRef}
+                  triggerWarp={triggerWarp}
+                  triggerBurst={triggerBurst}
+                  onSaveMoment={() => showToast("Take a screenshot and keep it forever \ud83d\udcf8")}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </div>
 
-      <ProgressDots total={scenes.length} active={sceneIndex} onJump={setSceneIndex} />
-
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-            className="fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/20 bg-black/55 px-5 py-2 text-sm text-[#fff8f0]"
-          >
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          <AnimatePresence>
+            {toast && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/20 bg-black/55 px-5 py-2 text-sm text-[#fff8f0]"
+              >
+                {toast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      )}
     </main>
   );
 }
