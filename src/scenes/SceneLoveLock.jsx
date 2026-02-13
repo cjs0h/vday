@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 
 const DODGE_TAUNTS = [
   "too slow!", "nope!", "haha!", "not yet!",
@@ -19,210 +20,217 @@ const CHASE_MESSAGES = [
   { at: 55, text: "Just a little more..." },
 ];
 
-const CHASE_DURATION = 60;  // seconds of active chasing
-const IDLE_RESET = 5;       // seconds idle before timer resets
-const LOCK_SIZE = 100;
-const PADDING = 16;
+const CHASE_DURATION = 60;  // seconds holding key
+const DODGE_DIST = 18;      // % — how close key must be for lock to dodge
+const CATCH_DIST = 10;      // % — overlap to lock
 
 export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, triggerBurst }) {
   const [locked, setLocked] = useState(false);
-  const [keyGone, setKeyGone] = useState(false);
   const [showMessage, setShowMessage] = useState(false);
   const [sparkles, setSparkles] = useState([]);
   const [toast, setToast] = useState("");
   const [chaseMsg, setChaseMsg] = useState("");
   const [catchable, setCatchable] = useState(false);
-  const [chaseStarted, setChaseStarted] = useState(false);
-  const [pos, setPos] = useState({ x: 50, y: 45 });
+  const [dragging, setDragging] = useState(false);
 
-  const elapsedRef = useRef(0);          // accumulated chase seconds
-  const lastTapRef = useRef(0);          // timestamp of last tap
-  const tickRef = useRef(null);          // movement timeout
+  /* positions in % of container */
+  const [lockPos, setLockPos] = useState({ x: 70, y: 35 });
+  const [keyPos, setKeyPos] = useState({ x: 30, y: 65 });
+
+  const containerRef = useRef(null);
+  const holdStartRef = useRef(null);   // timestamp when finger went down
+  const elapsedRef = useRef(0);        // accumulated hold seconds
+  const rafRef = useRef(null);
+  const tickRef = useRef(null);
   const toastRef = useRef(null);
   const chaseMsgRef = useRef(null);
   const shownMsgsRef = useRef(new Set());
   const lockedRef = useRef(false);
   const catchableRef = useRef(false);
-  const chaseStartedRef = useRef(false);
-  const containerRef = useRef(null);
+  const draggingRef = useRef(false);
+  const lockPosRef = useRef({ x: 70, y: 35 });
+  const keyPosRef = useRef({ x: 30, y: 65 });
 
   useEffect(() => { lockedRef.current = locked; }, [locked]);
   useEffect(() => { catchableRef.current = catchable; }, [catchable]);
-  useEffect(() => { chaseStartedRef.current = chaseStarted; }, [chaseStarted]);
 
-  const getBounds = useCallback(() => {
+  /* ── convert pointer px → container % ── */
+  const pxToPercent = useCallback((clientX, clientY) => {
     const el = containerRef.current;
-    if (!el) return { minX: 10, maxX: 90, minY: 12, maxY: 85 };
-    const w = el.clientWidth;
-    const h = el.clientHeight;
-    const px = ((LOCK_SIZE / 2 + PADDING) / w) * 100;
-    const py = ((LOCK_SIZE / 2 + PADDING) / h) * 100;
-    return { minX: px, maxX: 100 - px, minY: py + 8, maxY: 100 - py - 6 };
+    if (!el) return { x: 50, y: 50 };
+    const r = el.getBoundingClientRect();
+    return {
+      x: Math.max(5, Math.min(95, ((clientX - r.left) / r.width) * 100)),
+      y: Math.max(8, Math.min(92, ((clientY - r.top) / r.height) * 100)),
+    };
   }, []);
 
-  const pickNewPos = useCallback(() => {
-    const b = getBounds();
-    return { x: rand(b.minX, b.maxX), y: rand(b.minY, b.maxY) };
-  }, [getBounds]);
+  /* ── pick a position away from the key ── */
+  const dodgeLock = useCallback((kx, ky) => {
+    /* go to opposite quadrant */
+    const nx = kx < 50 ? rand(60, 90) : rand(10, 40);
+    const ny = ky < 50 ? rand(55, 85) : rand(12, 45);
+    lockPosRef.current = { x: nx, y: ny };
+    setLockPos({ x: nx, y: ny });
+  }, []);
 
-  /* ── setup + movement loop ── */
+  /* ── show toast ── */
+  const showToastMsg = useCallback((text) => {
+    setToast(text);
+    if (toastRef.current) clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => setToast(""), 800);
+  }, []);
+
+  /* ── check chase milestones ── */
+  const checkMilestones = useCallback(() => {
+    for (const msg of CHASE_MESSAGES) {
+      if (elapsedRef.current >= msg.at && !shownMsgsRef.current.has(msg.at)) {
+        shownMsgsRef.current.add(msg.at);
+        setChaseMsg(msg.text);
+        if (chaseMsgRef.current) clearTimeout(chaseMsgRef.current);
+        chaseMsgRef.current = setTimeout(() => setChaseMsg(""), 2200);
+        break;
+      }
+    }
+  }, []);
+
+  /* ── setup starfield + lock movement ── */
   useEffect(() => {
     setStarPreset({ speed: 0.08, opacity: 0.25, tint: "#e8b86d" });
     setSceneObjects({ orb: { visible: false }, planet: { visible: false }, bloomIntensity: 0 });
 
-    const tick = () => {
+    /* lock wanders on its own */
+    const moveLock = () => {
       if (lockedRef.current) return;
+      const lp = lockPosRef.current;
+      /* small random drift */
+      const nx = Math.max(8, Math.min(92, lp.x + rand(-15, 15)));
+      const ny = Math.max(12, Math.min(88, lp.y + rand(-12, 12)));
+      lockPosRef.current = { x: nx, y: ny };
+      setLockPos({ x: nx, y: ny });
 
-      /* idle detection — if chase started and no tap for 5s, reset */
-      if (chaseStartedRef.current && lastTapRef.current > 0) {
-        const idle = (Date.now() - lastTapRef.current) / 1000;
-        if (idle >= IDLE_RESET && elapsedRef.current > 0) {
-          elapsedRef.current = 0;
-          shownMsgsRef.current.clear();
-          setCatchable(false);
-          catchableRef.current = false;
-        }
-      }
-
-      /* accumulate time only if actively tapping (last tap within 5s) */
-      if (chaseStartedRef.current && lastTapRef.current > 0) {
-        const idle = (Date.now() - lastTapRef.current) / 1000;
-        if (idle < IDLE_RESET) {
-          /* count ~0.5s per tick (tick runs every ~500ms on average relative to movement) */
-        }
-      }
-
-      /* check chase milestones */
-      for (const msg of CHASE_MESSAGES) {
-        if (elapsedRef.current >= msg.at && !shownMsgsRef.current.has(msg.at)) {
-          shownMsgsRef.current.add(msg.at);
-          setChaseMsg(msg.text);
-          if (chaseMsgRef.current) clearTimeout(chaseMsgRef.current);
-          chaseMsgRef.current = setTimeout(() => setChaseMsg(""), 2200);
-          break;
-        }
-      }
-
-      /* check if catchable */
-      if (elapsedRef.current >= CHASE_DURATION && !catchableRef.current) {
-        setCatchable(true);
-        catchableRef.current = true;
-      }
-
-      /* move lock */
-      setPos(pickNewPos());
-
-      /* schedule next move */
-      const interval = catchableRef.current
-        ? rand(2200, 3500)
-        : elapsedRef.current < 30
-          ? rand(700, 1200)
-          : rand(1200, 2000);
-      tickRef.current = setTimeout(tick, interval);
+      const interval = catchableRef.current ? rand(2500, 4000) : rand(900, 1800);
+      tickRef.current = setTimeout(moveLock, interval);
     };
-
-    tickRef.current = setTimeout(tick, 800);
+    tickRef.current = setTimeout(moveLock, 1200);
 
     return () => {
       if (tickRef.current) clearTimeout(tickRef.current);
       if (toastRef.current) clearTimeout(toastRef.current);
       if (chaseMsgRef.current) clearTimeout(chaseMsgRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [setStarPreset, setSceneObjects, pickNewPos]);
+  }, [setStarPreset, setSceneObjects]);
 
-  const showToastMsg = (text) => {
-    setToast(text);
-    if (toastRef.current) clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => setToast(""), 900);
-  };
-
-  /* ── tap handler ── */
-  const handleTap = () => {
-    if (locked) return;
-
-    /* start the chase on first tap */
-    if (!chaseStarted) {
-      setChaseStarted(true);
-      chaseStartedRef.current = true;
-    }
-
-    const now = Date.now();
-
-    /* idle reset check — if last tap was >5s ago, reset elapsed */
-    if (lastTapRef.current > 0 && (now - lastTapRef.current) / 1000 >= IDLE_RESET) {
-      elapsedRef.current = 0;
-      shownMsgsRef.current.clear();
-      setCatchable(false);
-      catchableRef.current = false;
-    }
-
-    /* accumulate time since last tap (capped at reasonable amount) */
-    if (lastTapRef.current > 0) {
-      const delta = Math.min((now - lastTapRef.current) / 1000, 3);
-      elapsedRef.current += delta;
-    }
-    lastTapRef.current = now;
-
-    if (!catchableRef.current) {
-      /* dodge to opposite side */
-      const b = getBounds();
-      const newX = pos.x < 50 ? rand(58, b.maxX) : rand(b.minX, 42);
-      const newY = pos.y < 50 ? rand(58, b.maxY) : rand(b.minY, 42);
-      setPos({ x: newX, y: newY });
-      showToastMsg(pick(DODGE_TAUNTS));
-
-      /* show milestone message if earned */
-      for (const msg of CHASE_MESSAGES) {
-        if (elapsedRef.current >= msg.at && !shownMsgsRef.current.has(msg.at)) {
-          shownMsgsRef.current.add(msg.at);
-          setChaseMsg(msg.text);
-          if (chaseMsgRef.current) clearTimeout(chaseMsgRef.current);
-          chaseMsgRef.current = setTimeout(() => setChaseMsg(""), 2200);
-          break;
-        }
-      }
-
-      /* check catchable */
-      if (elapsedRef.current >= CHASE_DURATION) {
-        setCatchable(true);
-        catchableRef.current = true;
-      }
+  /* ── hold timer RAF loop — runs while finger is down ── */
+  useEffect(() => {
+    if (!dragging || locked) {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       return;
     }
 
-    /* finally caught! */
-    setLocked(true);
-    lockedRef.current = true;
-    if (tickRef.current) clearTimeout(tickRef.current);
-    if (triggerBurst) triggerBurst(pos.x, pos.y, 1.8);
+    const loop = () => {
+      if (!draggingRef.current || lockedRef.current) return;
+      const now = performance.now();
+      const dt = (now - (holdStartRef.current || now)) / 1000;
+      holdStartRef.current = now;
+      elapsedRef.current += dt;
 
-    setSparkles(
-      Array.from({ length: 24 }).map((_, i) => ({
-        id: i,
-        x: rand(-130, 130),
-        y: rand(-130, 130),
-        size: rand(12, 24),
-        delay: rand(0, 0.35),
-      })),
-    );
+      checkMilestones();
 
-    setTimeout(() => setKeyGone(true), 1000);
-    setTimeout(() => setShowMessage(true), 2400);
-  };
+      if (elapsedRef.current >= CHASE_DURATION && !catchableRef.current) {
+        setCatchable(true);
+        catchableRef.current = true;
+      }
 
-  const moveDuration = catchable ? 1.8 : 0.45;
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    holdStartRef.current = performance.now();
+    rafRef.current = requestAnimationFrame(loop);
+
+    return () => {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    };
+  }, [dragging, locked, checkMilestones]);
+
+  /* ── pointer handlers for the key ── */
+  const onKeyDown = useCallback((e) => {
+    if (lockedRef.current) return;
+    e.preventDefault();
+    (e.target).setPointerCapture?.(e.pointerId);
+    draggingRef.current = true;
+    setDragging(true);
+    holdStartRef.current = performance.now();
+  }, []);
+
+  const onKeyMove = useCallback((e) => {
+    if (!draggingRef.current || lockedRef.current) return;
+    e.preventDefault();
+
+    const kp = pxToPercent(e.clientX, e.clientY);
+    keyPosRef.current = kp;
+    setKeyPos(kp);
+
+    const lp = lockPosRef.current;
+    const d = dist(kp.x, kp.y, lp.x, lp.y);
+
+    if (catchableRef.current && d < CATCH_DIST) {
+      /* caught! */
+      lockedRef.current = true;
+      setLocked(true);
+      draggingRef.current = false;
+      setDragging(false);
+      if (tickRef.current) clearTimeout(tickRef.current);
+      if (triggerBurst) triggerBurst(lp.x, lp.y, 1.8);
+
+      setSparkles(
+        Array.from({ length: 24 }).map((_, i) => ({
+          id: i,
+          x: rand(-120, 120),
+          y: rand(-120, 120),
+          size: rand(12, 24),
+          delay: rand(0, 0.35),
+        })),
+      );
+      setTimeout(() => setShowMessage(true), 1800);
+      return;
+    }
+
+    if (!catchableRef.current && d < DODGE_DIST) {
+      /* lock dodges away */
+      dodgeLock(kp.x, kp.y);
+      showToastMsg(pick(DODGE_TAUNTS));
+    }
+  }, [pxToPercent, dodgeLock, showToastMsg, triggerBurst]);
+
+  const onKeyUp = useCallback(() => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragging(false);
+
+    /* reset timer on finger lift */
+    elapsedRef.current = 0;
+    shownMsgsRef.current.clear();
+    if (catchableRef.current) {
+      setCatchable(false);
+      catchableRef.current = false;
+    }
+  }, []);
+
+  const lockMoveDur = catchable ? 2 : 0.5;
 
   return (
     <section
       ref={containerRef}
       className="scene-shell relative flex flex-col items-center justify-center overflow-hidden text-center"
-      style={{ padding: 0 }}
+      style={{ padding: 0, touchAction: "none" }}
     >
       {/* title */}
       <motion.h2
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="font-display absolute top-[5%] z-30 text-[clamp(28px,7vw,58px)] text-[#fff8f0]"
+        className="font-display absolute top-[4%] z-30 text-[clamp(26px,6.5vw,52px)] text-[#fff8f0]"
       >
         Lock our love
       </motion.h2>
@@ -233,7 +241,7 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
           key={chaseMsg}
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="font-display absolute top-[13%] z-30 text-[clamp(16px,4vw,26px)] text-[#ffd6e0]"
+          className="font-display absolute top-[12%] z-30 text-[clamp(15px,3.8vw,24px)] text-[#ffd6e0]"
           style={{ filter: "drop-shadow(0 0 14px rgba(255,214,224,0.4))" }}
         >
           {chaseMsg}
@@ -242,29 +250,22 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
 
       {/* ── THE LOCK ── */}
       {!showMessage && (
-        <motion.button
-          type="button"
-          onClick={handleTap}
-          whileTap={!locked ? { scale: 0.85 } : {}}
+        <motion.div
           animate={{
-            left: `${pos.x}%`,
-            top: `${pos.y}%`,
+            left: `${lockPos.x}%`,
+            top: `${lockPos.y}%`,
             scale: locked ? [1, 1.3, 1.05] : catchable ? [1, 1.06, 1] : 1,
             rotate: locked ? [0, -10, 10, 0] : 0,
           }}
           transition={{
-            left: { duration: locked ? 0 : moveDuration, ease: catchable ? "easeInOut" : "easeOut" },
-            top: { duration: locked ? 0 : moveDuration, ease: catchable ? "easeInOut" : "easeOut" },
-            scale: locked
-              ? { duration: 0.6 }
-              : catchable
-                ? { duration: 2, repeat: Infinity, ease: "easeInOut" }
-                : { duration: 0.3 },
+            left: { duration: locked ? 0 : lockMoveDur, ease: catchable ? "easeInOut" : "easeOut" },
+            top: { duration: locked ? 0 : lockMoveDur, ease: catchable ? "easeInOut" : "easeOut" },
+            scale: locked ? { duration: 0.6 } : catchable ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 },
             rotate: { duration: 0.6 },
           }}
-          className="absolute z-20 -translate-x-1/2 -translate-y-1/2 select-none leading-none"
+          className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 select-none leading-none"
           style={{
-            fontSize: "clamp(80px, 18vw, 130px)",
+            fontSize: "clamp(70px, 16vw, 120px)",
             filter: locked
               ? "drop-shadow(0 0 50px rgba(232,184,109,0.7))"
               : catchable
@@ -275,6 +276,7 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
         >
           {locked ? "\uD83D\uDD12" : "\uD83D\uDD13"}
 
+          {/* sparkle burst */}
           {sparkles.map((s) => (
             <motion.div
               key={s.id}
@@ -297,7 +299,37 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
               style={{ filter: "blur(35px)" }}
             />
           )}
-        </motion.button>
+        </motion.div>
+      )}
+
+      {/* ── THE KEY — draggable ── */}
+      {!locked && !showMessage && (
+        <motion.div
+          onPointerDown={onKeyDown}
+          onPointerMove={onKeyMove}
+          onPointerUp={onKeyUp}
+          onPointerCancel={onKeyUp}
+          animate={{
+            left: `${keyPos.x}%`,
+            top: `${keyPos.y}%`,
+            scale: dragging ? 1.15 : 1,
+          }}
+          transition={{
+            left: { duration: 0.08, ease: "linear" },
+            top: { duration: 0.08, ease: "linear" },
+            scale: { duration: 0.2 },
+          }}
+          className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-grab select-none leading-none active:cursor-grabbing"
+          style={{
+            fontSize: "clamp(50px, 12vw, 80px)",
+            filter: dragging
+              ? "drop-shadow(0 0 20px rgba(232,184,109,0.6))"
+              : "drop-shadow(0 0 8px rgba(232,184,109,0.3))",
+            touchAction: "none",
+          }}
+        >
+          🔑
+        </motion.div>
       )}
 
       {/* instruction */}
@@ -305,9 +337,13 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
         <motion.p
           animate={{ opacity: [0.4, 0.9, 0.4] }}
           transition={{ duration: 1.6, repeat: Infinity }}
-          className="absolute bottom-[12%] z-30 text-[clamp(14px,3.5vw,20px)] text-[#ffb3c6]"
+          className="absolute bottom-[10%] z-30 px-4 text-[clamp(13px,3.2vw,18px)] text-[#ffb3c6]"
         >
-          {catchable ? "she's tired — catch her now!" : "tap the lock!"}
+          {catchable
+            ? "she's tired — drag the key to the lock!"
+            : dragging
+              ? "keep holding... don't let go!"
+              : "hold the key and drag it to the lock"}
         </motion.p>
       )}
 
@@ -317,23 +353,11 @@ export default function SceneLoveLock({ onNext, setStarPreset, setSceneObjects, 
           key={toast + Date.now()}
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="absolute bottom-[18%] z-30 text-[clamp(18px,4.5vw,30px)] font-bold italic text-[#e8b86d]"
+          className="absolute bottom-[16%] z-30 text-[clamp(17px,4.2vw,28px)] font-bold italic text-[#e8b86d]"
           style={{ filter: "drop-shadow(0 0 12px rgba(232,184,109,0.4))" }}
         >
           {toast}
         </motion.p>
-      )}
-
-      {/* key flying away */}
-      {locked && !keyGone && (
-        <motion.div
-          initial={{ opacity: 1, left: `${pos.x}%`, top: `${pos.y}%`, rotate: 0, scale: 1 }}
-          animate={{ opacity: 0, top: "-10%", left: `${pos.x + 20}%`, rotate: 280, scale: 0.2 }}
-          transition={{ duration: 1.6, ease: "easeIn" }}
-          className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 text-[clamp(40px,10vw,70px)]"
-        >
-          🔑
-        </motion.div>
       )}
 
       {/* final message */}
