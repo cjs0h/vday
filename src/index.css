@@ -1,0 +1,121 @@
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Playfair+Display:wght@400;600;700;800&display=swap");
+@import "tailwindcss";
+
+:root {
+  --bg-0: #0a0010;
+  --bg-1: #110020;
+  --pink: #ff6b8a;
+  --pink-soft: #ffb3c6;
+  --rose: #ff8fa3;
+  --gold: #e8b86d;
+  --peach: #ffcdb2;
+  --cream: #fff8f0;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Cormorant Garamond", serif;
+  color: var(--cream);
+  background: radial-gradient(circle at 20% 20%, #1a0a2a 0%, #0a0010 45%, #090010 100%);
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font: inherit;
+}
+
+.font-display {
+  font-family: "Playfair Display", serif;
+}
+
+.font-script {
+  font-family: "Caveat", cursive;
+}
+
+.scene-shell {
+  min-height: 100dvh;
+  width: 100%;
+  padding: 4rem 1.5rem 7rem;
+}
+
+.glass-button {
+  border: 1px solid rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(16px);
+  color: #fff8f0;
+  letter-spacing: 0.08em;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.glass-button:hover {
+  box-shadow: 0 0 40px rgb(255 107 138 / 0.35);
+  border-color: rgb(255 179 198 / 0.35);
+}
+
+.vignette-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  background: radial-gradient(circle at center, transparent 38%, rgb(0 0 0 / 0.4) 72%, rgb(0 0 0 / 0.78) 100%);
+}
+
+.type-cursor {
+  display: inline-block;
+  margin-left: 0.2rem;
+  animation: cursor-blink 1s steps(2, start) infinite;
+  color: #ffb3c6;
+}
+
+@keyframes cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@keyframes star-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 6px rgb(255 179 198 / 0.7), 0 0 18px rgb(255 107 138 / 0.22);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 14px rgb(255 179 198 / 0.95), 0 0 28px rgb(232 184 109 / 0.4);
+    transform: scale(1.12);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 0% center;
+  }
+  to {
+    background-position: 200% center;
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
