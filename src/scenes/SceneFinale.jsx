@@ -119,9 +119,12 @@ export default function SceneFinale({ onRestart, triggerBurst, triggerWarp, setS
         >
           <h2
             ref={titleRef}
-            className="font-display bg-[linear-gradient(100deg,#fff8f0,#ffb3c6,#e8b86d,#fff8f0)] bg-[length:200%_100%] bg-clip-text text-[clamp(36px,8vw,80px)] leading-[0.95] text-transparent"
+            className="font-handwriting bg-[linear-gradient(100deg,#fff8f0,#ffb3c6,#e8b86d,#fff8f0)] bg-[length:200%_100%] bg-clip-text text-[clamp(36px,8vw,80px)] leading-[1.2] text-transparent"
           >
-            Happy Valentine&apos;s Day, My Love
+            Happy Valentine&apos;s Day,{" "}
+            <span className="block">
+              My &ldquo;<span className="font-arabic text-[1.1em]">{"\u0641\u0633\u062A\u0642\u0629"}</span>&rdquo;
+            </span>
           </h2>
           <p className="max-w-3xl text-[clamp(21px,4.8vw,34px)] italic text-[#fff8f0]/86">
             I love you more than words on a screen could ever say.

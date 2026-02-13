@@ -150,7 +150,7 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      <ProgressDots total={scenes.length} active={sceneIndex} />
+      <ProgressDots total={scenes.length} active={sceneIndex} onJump={setSceneIndex} />
 
       <AnimatePresence>
         {toast && (

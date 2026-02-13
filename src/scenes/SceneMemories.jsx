@@ -11,91 +11,154 @@ const DECOY_TAUNTS = ["not that one!", "ouch!", "wrong heart!", "tricked ya!"];
 
 export default function SceneMemories({ onNext, setStarPreset, setSceneObjects }) {
   const [score, setScore] = useState(0);
-  const [active, setActive] = useState(null); // { cell, isDecoy }
+  const [actives, setActives] = useState([]); // [{ id, cell, isDecoy }, ...]
   const [toast, setToast] = useState("");
   const [done, setDone] = useState(false);
   const [flashes, setFlashes] = useState([]);
+
   const scoreRef = useRef(0);
-  const timerRef = useRef(null);
-  const toastTimerRef = useRef(null);
   const roundRef = useRef(0);
+  const nextId = useRef(0);
+  const loopTimer = useRef(null);
+  const hideTimers = useRef({});
+  const toastTimer = useRef(null);
+  const activesRef = useRef([]);
+  const doneRef = useRef(false);
+  const nudgeRef = useRef(null);
 
   useEffect(() => {
     setStarPreset({ speed: 0.2, opacity: 0.45, tint: "#ffd6e0" });
     setSceneObjects({ orb: { visible: false }, planet: { visible: false }, bloomIntensity: 0 });
   }, [setStarPreset, setSceneObjects]);
 
-  const showToast = (text) => {
-    setToast(text);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(""), 800);
+  const showToast = (msg) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 800);
   };
 
-  // Spawn hearts in random cells
+  /* ---- difficulty curve (gets faster + dual hearts near the end) ---- */
+  const getDiff = () => {
+    const p = scoreRef.current / GOAL; // 0 -> 1
+    const r = roundRef.current;
+    return {
+      showMs:  Math.max(500, 1400 - r * 35 - p * 400),
+      gapMin:  Math.max(150, 350 - p * 200),
+      gapMax:  Math.max(300, 650 - p * 350),
+      decoy:   0.2 + Math.min(0.25, r * 0.012),
+      dual:    p >= 0.45 ? Math.min(0.65, (p - 0.45) * 1.8) : 0,
+    };
+  };
+
+  /* sync actives to both state and ref */
+  const updateActives = (fn) => {
+    setActives((prev) => {
+      const next = typeof fn === "function" ? fn(prev) : fn;
+      activesRef.current = next;
+      return next;
+    });
+  };
+
+  /* ---- main game loop (never breaks) ---- */
   useEffect(() => {
     if (done) return;
-    const spawn = () => {
-      roundRef.current++;
-      const cell = Math.floor(Math.random() * GRID);
-      // Decoy chance increases over time (20% base, up to 40%)
-      const decoyChance = 0.2 + Math.min(0.2, roundRef.current * 0.015);
-      const isDecoy = Math.random() < decoyChance;
-      setActive({ cell, isDecoy });
-      // Disappear time gets shorter as you progress (1.4s down to 0.7s)
-      const showTime = Math.max(700, 1400 - roundRef.current * 40);
-      timerRef.current = setTimeout(() => {
-        setActive(null);
-        if (!isDecoy) showToast(pick(TAUNTS));
-        // Next one after a gap
-        timerRef.current = setTimeout(spawn, rand(300, 600));
-      }, showTime);
+
+    const addHearts = (count, d) => {
+      const taken = new Set(activesRef.current.map((a) => a.cell));
+      const batch = [];
+
+      for (let i = 0; i < count; i++) {
+        let cell, t = 0;
+        do { cell = Math.floor(Math.random() * GRID); t++; } while (taken.has(cell) && t < 20);
+        if (taken.has(cell)) continue;
+        taken.add(cell);
+
+        const id = ++nextId.current;
+        const isDecoy = Math.random() < d.decoy;
+        batch.push({ id, cell, isDecoy });
+
+        // auto-hide after showMs
+        hideTimers.current[id] = setTimeout(() => {
+          updateActives((prev) => prev.filter((a) => a.id !== id));
+          delete hideTimers.current[id];
+          if (!isDecoy) showToast(pick(TAUNTS));
+          scheduleTick(); // keep the loop alive
+        }, d.showMs);
+      }
+
+      if (batch.length) updateActives((prev) => [...prev, ...batch]);
     };
-    timerRef.current = setTimeout(spawn, 800);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+
+    const tick = () => {
+      if (doneRef.current) return;
+      const d = getDiff();
+      const onScreen = activesRef.current.length;
+      const wantTwo = Math.random() < d.dual;
+      const canAdd = Math.min(wantTwo ? 2 : 1, 2 - onScreen);
+
+      if (canAdd > 0) {
+        roundRef.current++;
+        addHearts(canAdd, getDiff());
+      }
+      scheduleTick();
+    };
+
+    const scheduleTick = (ms) => {
+      if (doneRef.current) return;
+      if (loopTimer.current) clearTimeout(loopTimer.current);
+      const d = getDiff();
+      loopTimer.current = setTimeout(tick, ms ?? rand(d.gapMin, d.gapMax));
+    };
+
+    nudgeRef.current = scheduleTick;
+    scheduleTick(800);
+
+    return () => {
+      if (loopTimer.current) clearTimeout(loopTimer.current);
+      Object.values(hideTimers.current).forEach((t) => clearTimeout(t));
+      hideTimers.current = {};
+    };
   }, [done]);
 
+  /* ---- tap handler ---- */
   const tapCell = (cell) => {
-    if (done || !active || active.cell !== cell) return;
-    const wasDecoy = active.isDecoy;
-    setActive(null);
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (doneRef.current) return;
+    const hit = activesRef.current.find((a) => a.cell === cell);
+    if (!hit) return;
 
-    if (wasDecoy) {
-      // Hit a decoy — lose a point
+    // remove tapped heart
+    updateActives((prev) => prev.filter((a) => a.id !== hit.id));
+    if (hideTimers.current[hit.id]) {
+      clearTimeout(hideTimers.current[hit.id]);
+      delete hideTimers.current[hit.id];
+    }
+
+    const fid = Date.now() + Math.random();
+
+    if (hit.isDecoy) {
       scoreRef.current = Math.max(0, scoreRef.current - 1);
       setScore(scoreRef.current);
       showToast(pick(DECOY_TAUNTS));
-      const id = Date.now();
-      setFlashes((prev) => [...prev, { id, cell, bad: true }]);
-      setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== id)), 500);
+      setFlashes((prev) => [...prev, { id: fid, cell, bad: true }]);
+      setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== fid)), 500);
     } else {
-      // Good hit
       scoreRef.current++;
       setScore(scoreRef.current);
-      const id = Date.now();
-      setFlashes((prev) => [...prev, { id, cell, bad: false }]);
-      setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== id)), 500);
+      setFlashes((prev) => [...prev, { id: fid, cell, bad: false }]);
+      setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== fid)), 500);
       if (scoreRef.current >= GOAL) {
+        doneRef.current = true;
         setDone(true);
+        if (loopTimer.current) clearTimeout(loopTimer.current);
+        Object.values(hideTimers.current).forEach((t) => clearTimeout(t));
+        hideTimers.current = {};
+        updateActives([]);
         return;
       }
     }
-    // Next heart after a short gap
-    timerRef.current = setTimeout(() => {
-      if (scoreRef.current < GOAL) {
-        roundRef.current++;
-        const nextCell = Math.floor(Math.random() * GRID);
-        const decoyChance = 0.2 + Math.min(0.2, roundRef.current * 0.015);
-        const isNextDecoy = Math.random() < decoyChance;
-        setActive({ cell: nextCell, isDecoy: isNextDecoy });
-        const showTime = Math.max(700, 1400 - roundRef.current * 40);
-        timerRef.current = setTimeout(() => {
-          setActive(null);
-          if (!isNextDecoy) showToast(pick(TAUNTS));
-          timerRef.current = setTimeout(() => tapCell(-1), rand(300, 600)); // trigger next spawn
-        }, showTime);
-      }
-    }, rand(350, 600));
+
+    // nudge the loop to spawn sooner
+    if (nudgeRef.current) nudgeRef.current();
   };
 
   return (
@@ -133,8 +196,7 @@ export default function SceneMemories({ onNext, setStarPreset, setSceneObjects }
       {!done && (
         <div className="relative z-10 grid grid-cols-3 gap-3">
           {Array.from({ length: GRID }).map((_, i) => {
-            const isActive = active?.cell === i;
-            const isDecoy = active?.isDecoy;
+            const activeHere = actives.find((a) => a.cell === i);
             const flash = flashes.find((f) => f.cell === i);
             return (
               <motion.button
@@ -145,20 +207,21 @@ export default function SceneMemories({ onNext, setStarPreset, setSceneObjects }
                 className="relative flex h-[clamp(80px,22vw,110px)] w-[clamp(80px,22vw,110px)] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]"
               >
                 <AnimatePresence>
-                  {isActive && (
+                  {activeHere && (
                     <motion.span
+                      key={activeHere.id}
                       initial={{ scale: 0, rotate: -20 }}
                       animate={{ scale: 1, rotate: 0 }}
                       exit={{ scale: 0, rotate: 20 }}
                       transition={{ type: "spring", damping: 12, stiffness: 300 }}
                       className="text-[clamp(36px,9vw,56px)] leading-none"
                       style={{
-                        filter: isDecoy
+                        filter: activeHere.isDecoy
                           ? "drop-shadow(0 0 8px rgba(100,100,100,0.5))"
                           : "drop-shadow(0 0 12px rgba(255,107,138,0.6))",
                       }}
                     >
-                      {isDecoy ? "💔" : "❤"}
+                      {activeHere.isDecoy ? "\uD83D\uDC94" : "\u2764"}
                     </motion.span>
                   )}
                 </AnimatePresence>
