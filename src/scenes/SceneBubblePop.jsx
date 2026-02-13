@@ -10,7 +10,7 @@ const GROW_RATE = 120; // px per second
 const COLORS = ["#ff6b8a", "#ffb3c6", "#ff8fa3", "#e8457c", "#ffd6e0"];
 const ZONE_SHRINK = 10; // green zone shrinks by this many px each success
 
-export default function SceneCountdown({ onNext, setStarPreset, setSceneObjects }) {
+export default function SceneBubblePop({ onNext, setStarPreset, setSceneObjects }) {
   const [size, setSize] = useState(MIN_SIZE);
   const [holding, setHolding] = useState(false);
   const [released, setReleased] = useState([]); // { id, size, x, color }

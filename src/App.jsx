@@ -6,27 +6,27 @@ import ProgressDots from "./components/ProgressDots";
 import Starfield from "./components/Starfield";
 import Vignette from "./components/Vignette";
 import SceneVoid from "./scenes/SceneVoid";
-import SceneUniverse from "./scenes/SceneUniverse";
-import SceneHeartPop from "./scenes/SceneRainfall";
-import SceneFireworks from "./scenes/SceneConstellation";
-import SceneBalloon from "./scenes/SceneCountdown";
+import SceneMemoryMatch from "./scenes/SceneMemoryMatch";
+import SceneHeartPop from "./scenes/SceneHeartPop";
+import SceneFireworks from "./scenes/SceneFireworks";
+import SceneBubblePop from "./scenes/SceneBubblePop";
 import SceneHeartbeat from "./scenes/SceneHeartbeat";
-import SceneHeartCatch from "./scenes/SceneMemories";
-import SceneLoveLock from "./scenes/ScenePromise";
-import SceneOrbit from "./scenes/SceneLetter";
+import SceneWhackHeart from "./scenes/SceneWhackHeart";
+import SceneLoveLock from "./scenes/SceneLoveLock";
+import SceneOrbit from "./scenes/SceneOrbit";
 import SceneWish from "./scenes/SceneWish";
 import SceneFinale from "./scenes/SceneFinale";
 
 const scenes = [
   SceneVoid,        // 0: Intro — orb + sparkles + "tap to begin"
-  SceneUniverse,    // 1: Star warp + planet tap
-  SceneHeartPop,    // 2: Tap floating hearts to pop them
+  SceneMemoryMatch, // 1: Memory match card game
+  SceneHeartPop,    // 2: Pop falling hearts
   SceneFireworks,   // 3: Tap to launch fireworks
-  SceneBalloon,     // 4: Hold to inflate heart balloons
-  SceneHeartbeat,   // 5: ECG visual spectacle
-  SceneHeartCatch,  // 6: Catch falling hearts
-  SceneLoveLock,    // 7: Tap padlock to lock love
-  SceneOrbit,       // 8: Two hearts orbit, tap to merge
+  SceneBubblePop,   // 4: Pop bubbles at the right size
+  SceneHeartbeat,   // 5: ECG heartbeat visual
+  SceneWhackHeart,  // 6: Whack-a-heart 3x3 grid
+  SceneLoveLock,    // 7: Catch the love lock
+  SceneOrbit,       // 8: Hold to merge orbiting hearts
   SceneWish,        // 9: Blow the dandelion
   SceneFinale,      // 10: Grand finale
 ];

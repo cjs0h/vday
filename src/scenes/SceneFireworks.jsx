@@ -23,7 +23,7 @@ function makeParticles() {
   });
 }
 
-export default function SceneConstellation({ onNext, setStarPreset, setSceneObjects }) {
+export default function SceneFireworks({ onNext, setStarPreset, setSceneObjects }) {
   const [fireworks, setFireworks] = useState([]);
   const [count, setCount] = useState(0);
   const [done, setDone] = useState(false);

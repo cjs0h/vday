@@ -9,7 +9,7 @@ const GRID = 9; // 3x3
 const TAUNTS = ["too slow!", "nope!", "faster!", "wake up!", "cmon!", "zzz..."];
 const DECOY_TAUNTS = ["not that one!", "ouch!", "wrong heart!", "tricked ya!"];
 
-export default function SceneMemories({ onNext, setStarPreset, setSceneObjects }) {
+export default function SceneWhackHeart({ onNext, setStarPreset, setSceneObjects }) {
   const [score, setScore] = useState(0);
   const [actives, setActives] = useState([]); // [{ id, cell, isDecoy }, ...]
   const [toast, setToast] = useState("");

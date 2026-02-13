@@ -30,7 +30,7 @@ const RELEASE_MESSAGES = [
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-export default function SceneLetter({ onNext, setStarPreset, setSceneObjects }) {
+export default function SceneOrbit({ onNext, setStarPreset, setSceneObjects }) {
   const [phase, setPhase] = useState("orbit"); // orbit | supernova | message
   const [holding, setHolding] = useState(false);
   const [intensity, setIntensity] = useState(0); // 0-1

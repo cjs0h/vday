@@ -8,7 +8,7 @@ const GOAL = 14;
 const COLORS = ["#ff6b8a", "#ffb3c6", "#ff8fa3", "#ffd6e0", "#e8457c"];
 const DECOY_TAUNTS = ["nope!", "wrong one!", "ouch!", "💔 hurts!", "tricked ya!"];
 
-export default function SceneRainfall({ onNext, setStarPreset, setSceneObjects }) {
+export default function SceneHeartPop({ onNext, setStarPreset, setSceneObjects }) {
   const [hearts, setHearts] = useState([]);
   const [score, setScore] = useState(0);
   const [done, setDone] = useState(false);
